@@ -35,6 +35,12 @@ const std::vector<std::string> keywords = {"and",   "break", "do",  "else", "els
 namespace Luau
 {
 
+enum class Target
+{
+    Luau,
+    Lua54,
+};
+
 struct Writer
 {
     virtual ~Writer() {}
@@ -295,15 +301,17 @@ private:
 
 struct Printer
 {
-    explicit Printer(Writer& writer, CstNodeMap cstNodeMap)
+    explicit Printer(Writer& writer, CstNodeMap cstNodeMap, Target target = Target::Luau)
         : writer(writer)
         , cstNodeMap(std::move(cstNodeMap))
+        , target(target)
     {
     }
 
     bool writeTypes = false;
     Writer& writer;
     CstNodeMap cstNodeMap;
+    Target target = Target::Luau;
 
     template<typename T>
     T* lookupCstNode(AstNode* astNode)
@@ -318,7 +326,7 @@ struct Printer
         advance(local.location.begin);
 
         writer.identifier(local.name.value);
-        if (writeTypes && local.annotation)
+    if (target == Target::Luau && writeTypes && local.annotation)
         {
             advance(colonPosition);
             writer.symbol(":");
@@ -594,8 +602,9 @@ struct Printer
         }
         else if (const auto& a = expr.as<AstExprFunction>())
         {
-            for (const auto& attribute : a->attributes)
-                visualizeAttribute(*attribute);
+            if (target == Target::Luau)
+                for (const auto& attribute : a->attributes)
+                    visualizeAttribute(*attribute);
             if (const auto cstNode = lookupCstNode<CstExprFunction>(a))
                 advance(cstNode->functionKeywordPosition);
             writer.keyword("function");
@@ -754,7 +763,7 @@ struct Printer
         {
             visualize(*a->expr);
 
-            if (writeTypes)
+            if (target == Target::Luau && writeTypes)
             {
                 if (const auto* cstNode = lookupCstNode<CstExprTypeAssertion>(a))
                     advance(cstNode->opPosition);
@@ -766,46 +775,102 @@ struct Printer
         }
         else if (const auto& a = expr.as<AstExprIfElse>())
         {
-            writer.keyword("if");
-            visualizeElseIfExpr(*a);
+            if (target == Target::Lua54)
+            {
+                // (function() if cond then return expr1 else return expr2 end end)()
+                writer.symbol("(");
+                writer.keyword("function");
+                writer.symbol("()");
+                writer.keyword("if");
+                visualize(*a->condition);
+                writer.keyword("then");
+                writer.keyword("return");
+                visualize(*a->trueExpr);
+                if (a->falseExpr)
+                {
+                    writer.keyword("else");
+                    visualize(*a->falseExpr);
+                }
+                writer.keyword("end");
+                writer.keyword("end");
+                writer.symbol(")()");
+            }
+            else
+            {
+                writer.keyword("if");
+                visualizeElseIfExpr(*a);
+            }
         }
         else if (const auto& a = expr.as<AstExprInterpString>())
         {
-            const auto* cstNode = lookupCstNode<CstExprInterpString>(a);
-
-            writer.symbol("`");
-
-            size_t index = 0;
-
-            for (const auto& string : a->strings)
+            if (target == Target::Lua54)
             {
-                if (cstNode)
+                // Rewrite to ("text" .. tostring(expr) .. "text" .. ...)
+                writer.symbol("(");
+                bool firstPart = true;
+                for (size_t i = 0; i < a->strings.size; ++i)
                 {
-                    if (index > 0)
+                    std::string_view s(a->strings.data[i].data, a->strings.data[i].size);
+                    if (!s.empty())
                     {
-                        advance(cstNode->stringPositions.data[index]);
-                        writer.symbol("}");
+                        if (!firstPart)
+                            writer.symbol(" .. ");
+                        writer.string(s);
+                        firstPart = false;
                     }
-                    const AstArray<char> sourceString = cstNode->sourceStrings.data[index];
-                    writer.writeMultiline(std::string_view(sourceString.data, sourceString.size));
+                    if (i < a->expressions.size)
+                    {
+                        if (!firstPart)
+                            writer.symbol(" .. ");
+                        writer.identifier("tostring");
+                        writer.symbol("(");
+                        visualize(*a->expressions.data[i]);
+                        writer.symbol(")");
+                        firstPart = false;
+                    }
                 }
-                else
-                {
-                    writer.write(escape(std::string_view(string.data, string.size), /* escapeForInterpString = */ true));
-                }
-
-                if (index < a->expressions.size)
-                {
-                    writer.symbol("{");
-                    visualize(*a->expressions.data[index]);
-                    if (!cstNode)
-                        writer.symbol("}");
-                }
-
-                index++;
+                if (firstPart)
+                    writer.string("");
+                writer.symbol(")");
             }
+            else
+            {
+                const auto* cstNode = lookupCstNode<CstExprInterpString>(a);
 
-            writer.symbol("`");
+                writer.symbol("`");
+
+                size_t index = 0;
+
+                for (const auto& string : a->strings)
+                {
+                    if (cstNode)
+                    {
+                        if (index > 0)
+                        {
+                            advance(cstNode->stringPositions.data[index]);
+                            writer.symbol("}");
+                        }
+                        const AstArray<char> sourceString = cstNode->sourceStrings.data[index];
+                        writer.writeMultiline(std::string_view(sourceString.data, sourceString.size));
+                    }
+                    else
+                    {
+                        writer.write(escape(std::string_view(string.data, string.size), /* escapeForInterpString = */ true));
+                    }
+
+                    if (index < a->expressions.size)
+                    {
+                        writer.symbol("{");
+                        visualize(*a->expressions.data[index]);
+                        if (!cstNode)
+                            writer.symbol("}");
+                    }
+
+                    index++;
+                }
+
+                writer.symbol("`");
+            }
         }
         else if (const auto& a = expr.as<AstExprError>())
         {
@@ -880,6 +945,13 @@ struct Printer
             advance(a->doLocation.begin);
             writer.keyword("do");
             visualizeBlock(*a->body);
+            if (target == Target::Lua54)
+            {
+                writer.newline();
+                writer.symbol("::");
+                writer.identifier("__luau_continue");
+                writer.symbol("::");
+            }
             advance(a->body->location.end);
             writer.keyword("end");
         }
@@ -887,6 +959,13 @@ struct Printer
         {
             writer.keyword("repeat");
             visualizeBlock(*a->body);
+            if (target == Target::Lua54)
+            {
+                writer.newline();
+                writer.symbol("::");
+                writer.identifier("__luau_continue");
+                writer.symbol("::");
+            }
             if (const auto cstNode = lookupCstNode<CstStatRepeat>(a))
                 writer.advance(cstNode->untilPosition);
             else
@@ -897,7 +976,18 @@ struct Printer
         else if (program.is<AstStatBreak>())
             writer.keyword("break");
         else if (program.is<AstStatContinue>())
-            writer.keyword("continue");
+        {
+            if (target == Target::Lua54)
+            {
+                writer.keyword("goto");
+                writer.space();
+                writer.identifier("__luau_continue");
+            }
+            else
+            {
+                writer.keyword("continue");
+            }
+        }
         else if (const auto& a = program.as<AstStatReturn>())
         {
             const auto cstNode = lookupCstNode<CstStatReturn>(a);
@@ -974,7 +1064,13 @@ struct Printer
             advance(a->doLocation.begin);
             writer.keyword("do");
             visualizeBlock(*a->body);
-
+            if (target == Target::Lua54)
+            {
+                writer.newline();
+                writer.symbol("::");
+                writer.identifier("__luau_continue");
+                writer.symbol("::");
+            }
             advance(a->body->location.end);
             writer.keyword("end");
         }
@@ -1012,7 +1108,13 @@ struct Printer
             writer.keyword("do");
 
             visualizeBlock(*a->body);
-
+            if (target == Target::Lua54)
+            {
+                writer.newline();
+                writer.symbol("::");
+                writer.identifier("__luau_continue");
+                writer.symbol("::");
+            }
             advance(a->body->location.end);
             writer.keyword("end");
         }
@@ -1044,73 +1146,87 @@ struct Printer
         {
             const auto cstNode = lookupCstNode<CstStatCompoundAssign>(a);
 
-            visualize(*a->var);
-
-            if (cstNode)
-                advance(cstNode->opPosition);
-
-            switch (a->op)
+            if (target == Target::Lua54)
             {
-            case AstExprBinary::Add:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("+=");
-                break;
-            case AstExprBinary::Sub:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("-=");
-                break;
-            case AstExprBinary::Mul:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("*=");
-                break;
-            case AstExprBinary::Div:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("/=");
-                break;
-            case AstExprBinary::FloorDiv:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 3);
-                writer.symbol("//=");
-                break;
-            case AstExprBinary::Mod:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("%=");
-                break;
-            case AstExprBinary::Pow:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 2);
-                writer.symbol("^=");
-                break;
-            case AstExprBinary::Concat:
-                if (!cstNode)
-                    writer.maybeSpace(a->value->location.begin, 3);
-                writer.symbol("..=");
-                break;
-            default:
-                LUAU_ASSERT(!"Unexpected compound assignment op");
+                // Rewrite: var op= value  ==>  var = var op value
+                visualize(*a->var);
+                writer.symbol("=");
+                visualize(*a->var);
+                writer.symbol(toString(a->op));
+                visualize(*a->value);
             }
+            else
+            {
+                visualize(*a->var);
 
-            visualize(*a->value);
+                if (cstNode)
+                    advance(cstNode->opPosition);
+
+                switch (a->op)
+                {
+                case AstExprBinary::Add:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("+=");
+                    break;
+                case AstExprBinary::Sub:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("-=");
+                    break;
+                case AstExprBinary::Mul:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("*=");
+                    break;
+                case AstExprBinary::Div:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("/=");
+                    break;
+                case AstExprBinary::FloorDiv:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 3);
+                    writer.symbol("//=");
+                    break;
+                case AstExprBinary::Mod:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("%=");
+                    break;
+                case AstExprBinary::Pow:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 2);
+                    writer.symbol("^=");
+                    break;
+                case AstExprBinary::Concat:
+                    if (!cstNode)
+                        writer.maybeSpace(a->value->location.begin, 3);
+                    writer.symbol("..=");
+                    break;
+                default:
+                    LUAU_ASSERT(!"Unexpected compound assignment op");
+                }
+
+                visualize(*a->value);
+            }
         }
         else if (const auto& a = program.as<AstStatFunction>())
         {
-            for (const auto& attribute : a->func->attributes)
-                visualizeAttribute(*attribute);
+            if (target == Target::Luau)
+                for (const auto& attribute : a->func->attributes)
+                    visualizeAttribute(*attribute);
             if (const auto cstNode = lookupCstNode<CstStatFunction>(a))
                 advance(cstNode->functionKeywordPosition);
             writer.keyword("function");
             visualize(*a->name);
             visualizeFunctionBody(*a->func);
         }
-        else if (const auto& a = program.as<AstStatLocalFunction>())
+    else if (const auto& a = program.as<AstStatLocalFunction>())
         {
-            for (const auto& attribute : a->func->attributes)
-                visualizeAttribute(*attribute);
+            if (target == Target::Luau)
+                for (const auto& attribute : a->func->attributes)
+                    visualizeAttribute(*attribute);
 
             const auto cstNode = lookupCstNode<CstStatLocalFunction>(a);
 
@@ -1131,7 +1247,7 @@ struct Printer
         }
         else if (const auto& a = program.as<AstStatTypeAlias>())
         {
-            if (writeTypes)
+            if (target == Target::Luau && writeTypes)
             {
                 const auto* cstNode = lookupCstNode<CstStatTypeAlias>(a);
 
@@ -1214,7 +1330,7 @@ struct Printer
         }
         else if (const auto& t = program.as<AstStatTypeFunction>())
         {
-            if (writeTypes)
+            if (target == Target::Luau && writeTypes)
             {
                 const auto cstNode = lookupCstNode<CstStatTypeFunction>(t);
                 if (t->exported)
@@ -1254,12 +1370,14 @@ struct Printer
         }
         else if (const auto& a = program.as<AstStatDeclareGlobal>())
         {
-            writer.keyword("declare");
-            writer.advance(a->nameLocation.begin);
-            writer.identifier(a->name.value);
-
-            writer.symbol(":");
-            visualizeTypeAnnotation(*a->type);
+            if (target == Target::Luau)
+            {
+                writer.keyword("declare");
+                writer.advance(a->nameLocation.begin);
+                writer.identifier(a->name.value);
+                writer.symbol(":");
+                visualizeTypeAnnotation(*a->type);
+            }
         }
         else
         {
@@ -1277,7 +1395,7 @@ struct Printer
     {
         const auto cstNode = lookupCstNode<CstExprFunction>(&func);
 
-        if (func.generics.size > 0 || func.genericPacks.size > 0)
+    if (target == Target::Luau && (func.generics.size > 0 || func.genericPacks.size > 0))
         {
             CommaSeparatorInserter comma(writer, cstNode ? cstNode->genericsCommaPositions.begin() : nullptr);
             if (cstNode)
@@ -1318,7 +1436,7 @@ struct Printer
 
             advance(local->location.begin);
             writer.identifier(local->name.value);
-            if (writeTypes && local->annotation)
+            if (target == Target::Luau && writeTypes && local->annotation)
             {
                 if (cstNode)
                 {
@@ -1336,7 +1454,7 @@ struct Printer
             advance(func.varargLocation.begin);
             writer.symbol("...");
 
-            if (func.varargAnnotation)
+            if (target == Target::Luau && func.varargAnnotation)
             {
                 if (cstNode)
                 {
@@ -1352,7 +1470,7 @@ struct Printer
             advanceBefore(func.argLocation->end, 1);
         writer.symbol(")");
 
-        if (writeTypes && func.returnAnnotation != nullptr)
+    if (target == Target::Luau && writeTypes && func.returnAnnotation != nullptr)
         {
             if (cstNode)
                 advance(cstNode->returnSpecifierPosition);
@@ -1444,18 +1562,21 @@ struct Printer
 
     void visualizeAttribute(AstAttr& attribute)
     {
-        advance(attribute.location.begin);
-        switch (attribute.type)
+        if (target == Target::Luau)
         {
-        case AstAttr::Checked:
-            writer.keyword("@checked");
-            break;
-        case AstAttr::Native:
-            writer.keyword("@native");
-            break;
-        case AstAttr::Deprecated:
-            writer.keyword("@deprecated");
-            break;
+            advance(attribute.location.begin);
+            switch (attribute.type)
+            {
+            case AstAttr::Checked:
+                writer.keyword("@checked");
+                break;
+            case AstAttr::Native:
+                writer.keyword("@native");
+                break;
+            case AstAttr::Deprecated:
+                writer.keyword("@deprecated");
+                break;
+            }
         }
     }
 
@@ -1907,6 +2028,41 @@ TranspileResult transpile(std::string_view source, ParseOptions options, bool wi
         return TranspileResult{transpileWithTypes(*parseResult.root, parseResult.cstNodeMap)};
 
     return TranspileResult{transpile(*parseResult.root, parseResult.cstNodeMap)};
+}
+
+std::string transpileToLua54(AstStatBlock& block, const CstNodeMap& cstNodeMap)
+{
+    StringWriter writer;
+    Printer printer(writer, cstNodeMap, Target::Lua54);
+    printer.writeTypes = false;
+    printer.visualizeBlock(block);
+    return writer.str();
+}
+
+std::string transpileToLua54(AstStatBlock& block)
+{
+    return transpileToLua54(block, CstNodeMap{nullptr});
+}
+
+TranspileResult transpileToLua54(std::string_view source, ParseOptions options)
+{
+    options.storeCstData = true;
+
+    auto allocator = Allocator{};
+    auto names = AstNameTable{allocator};
+    ParseResult parseResult = Parser::parse(source.data(), source.size(), names, allocator, std::move(options));
+
+    if (!parseResult.errors.empty())
+    {
+        const ParseError& error = parseResult.errors.front();
+        return TranspileResult{"", error.getLocation(), error.what()};
+    }
+
+    LUAU_ASSERT(parseResult.root);
+    if (!parseResult.root)
+        return TranspileResult{"", {}, "Internal error: Parser yielded empty parse tree"};
+
+    return TranspileResult{transpileToLua54(*parseResult.root, parseResult.cstNodeMap)};
 }
 
 } // namespace Luau

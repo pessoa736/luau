@@ -30,4 +30,15 @@ std::string transpileWithTypes(AstStatBlock &block, const CstNodeMap& cstNodeMap
 // Only fails when parsing fails
 TranspileResult transpile(std::string_view source, ParseOptions options = ParseOptions{}, bool withTypes = false);
 
+// Lua 5.4-compatible transpilation (removes Luau-only syntax and rewrites constructs)
+// - Removes type annotations and attributes
+// - Rewrites continue to goto labels
+// - Rewrites compound assignments (+=, -=, etc.)
+// - Rewrites if-else expressions as IIFE
+// - Rewrites interpolation strings to concatenations with tostring()
+// Only fails when parsing fails
+TranspileResult transpileToLua54(std::string_view source, ParseOptions options = ParseOptions{});
+std::string transpileToLua54(AstStatBlock& block);
+std::string transpileToLua54(AstStatBlock& block, const CstNodeMap& cstNodeMap);
+
 } // namespace Luau

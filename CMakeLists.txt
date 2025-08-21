@@ -12,6 +12,8 @@ option(LUAU_BUILD_WEB "Build Web module" OFF)
 option(LUAU_WERROR "Warnings as errors" OFF)
 option(LUAU_STATIC_CRT "Link with the static CRT (/MT)" OFF)
 option(LUAU_EXTERN_C "Use extern C for all APIs" OFF)
+option(BUILD_PUC_LUA54 "Download and build official PUC-Lua 5.4 alongside Luau (Linux/Unix only)" OFF)
+option(LUAU_TRANSPILE_ONLY "Build only the Lua 5.4 transpiler and minimal deps" OFF)
 
 cmake_policy(SET CMP0054 NEW)
 cmake_policy(SET CMP0091 NEW)
@@ -29,36 +31,46 @@ add_library(Luau.Compiler STATIC)
 add_library(Luau.Config STATIC)
 add_library(Luau.Analysis STATIC)
 add_library(Luau.EqSat STATIC)
-add_library(Luau.CodeGen STATIC)
+if(NOT LUAU_TRANSPILE_ONLY)
+    add_library(Luau.CodeGen STATIC)
+endif()
 add_library(Luau.VM STATIC)
-add_library(Luau.Require STATIC)
-add_library(Luau.RequireNavigator STATIC)
-add_library(isocline STATIC)
-
-if(LUAU_BUILD_CLI)
-    add_executable(Luau.Repl.CLI)
-    add_executable(Luau.Analyze.CLI)
-    add_executable(Luau.Ast.CLI)
-    add_executable(Luau.Reduce.CLI)
-    add_executable(Luau.Compile.CLI)
-    add_executable(Luau.Bytecode.CLI)
-
-    # This also adds target `name` on Linux/macOS and `name.exe` on Windows
-    set_target_properties(Luau.Repl.CLI PROPERTIES OUTPUT_NAME luau)
-    set_target_properties(Luau.Analyze.CLI PROPERTIES OUTPUT_NAME luau-analyze)
-    set_target_properties(Luau.Ast.CLI PROPERTIES OUTPUT_NAME luau-ast)
-    set_target_properties(Luau.Reduce.CLI PROPERTIES OUTPUT_NAME luau-reduce)
-    set_target_properties(Luau.Compile.CLI PROPERTIES OUTPUT_NAME luau-compile)
-    set_target_properties(Luau.Bytecode.CLI PROPERTIES OUTPUT_NAME luau-bytecode)
+if(NOT LUAU_TRANSPILE_ONLY)
+    add_library(Luau.Require STATIC)
+    add_library(Luau.RequireNavigator STATIC)
+    add_library(isocline STATIC)
 endif()
 
-if(LUAU_BUILD_TESTS)
+if(LUAU_BUILD_CLI)
+    if(NOT LUAU_TRANSPILE_ONLY)
+        add_executable(Luau.Repl.CLI)
+        add_executable(Luau.Analyze.CLI)
+        add_executable(Luau.Ast.CLI)
+        add_executable(Luau.Reduce.CLI)
+        add_executable(Luau.Compile.CLI)
+        add_executable(Luau.Bytecode.CLI)
+    endif()
+    add_executable(Luau.Transpile54.CLI)
+
+    # This also adds target `name` on Linux/macOS and `name.exe` on Windows
+    if(NOT LUAU_TRANSPILE_ONLY)
+        set_target_properties(Luau.Repl.CLI PROPERTIES OUTPUT_NAME luau)
+        set_target_properties(Luau.Analyze.CLI PROPERTIES OUTPUT_NAME luau-analyze)
+        set_target_properties(Luau.Ast.CLI PROPERTIES OUTPUT_NAME luau-ast)
+        set_target_properties(Luau.Reduce.CLI PROPERTIES OUTPUT_NAME luau-reduce)
+        set_target_properties(Luau.Compile.CLI PROPERTIES OUTPUT_NAME luau-compile)
+        set_target_properties(Luau.Bytecode.CLI PROPERTIES OUTPUT_NAME luau-bytecode)
+    endif()
+    set_target_properties(Luau.Transpile54.CLI PROPERTIES OUTPUT_NAME luau-transpile54)
+endif()
+
+if(LUAU_BUILD_TESTS AND NOT LUAU_TRANSPILE_ONLY)
     add_executable(Luau.UnitTest)
     add_executable(Luau.Conformance)
     add_executable(Luau.CLI.Test)
 endif()
 
-if(LUAU_BUILD_WEB)
+if(LUAU_BUILD_WEB AND NOT LUAU_TRANSPILE_ONLY)
     add_executable(Luau.Web)
 endif()
 
@@ -94,25 +106,33 @@ target_compile_features(Luau.EqSat PUBLIC cxx_std_17)
 target_include_directories(Luau.EqSat PUBLIC EqSat/include)
 target_link_libraries(Luau.EqSat PUBLIC Luau.Common)
 
-target_compile_features(Luau.CodeGen PRIVATE cxx_std_17)
-target_include_directories(Luau.CodeGen PUBLIC CodeGen/include)
-target_link_libraries(Luau.CodeGen PRIVATE Luau.VM Luau.VM.Internals) # Code generation needs VM internals
-target_link_libraries(Luau.CodeGen PUBLIC Luau.Common)
+if(TARGET Luau.CodeGen)
+    target_compile_features(Luau.CodeGen PRIVATE cxx_std_17)
+    target_include_directories(Luau.CodeGen PUBLIC CodeGen/include)
+    target_link_libraries(Luau.CodeGen PRIVATE Luau.VM Luau.VM.Internals) # Code generation needs VM internals
+    target_link_libraries(Luau.CodeGen PUBLIC Luau.Common)
+endif()
 
 target_compile_features(Luau.VM PRIVATE cxx_std_11)
 target_include_directories(Luau.VM PUBLIC VM/include)
 target_link_libraries(Luau.VM PUBLIC Luau.Common)
 
-target_compile_features(Luau.Require PUBLIC cxx_std_17)
-target_include_directories(Luau.Require PUBLIC Require/Runtime/include)
-target_link_libraries(Luau.Require PUBLIC Luau.VM)
-target_link_libraries(Luau.Require PRIVATE Luau.RequireNavigator)
+if(TARGET Luau.Require)
+    target_compile_features(Luau.Require PUBLIC cxx_std_17)
+    target_include_directories(Luau.Require PUBLIC Require/Runtime/include)
+    target_link_libraries(Luau.Require PUBLIC Luau.VM)
+    target_link_libraries(Luau.Require PRIVATE Luau.RequireNavigator)
+endif()
 
-target_compile_features(Luau.RequireNavigator PUBLIC cxx_std_17)
-target_include_directories(Luau.RequireNavigator PUBLIC Require/Navigator/include)
-target_link_libraries(Luau.RequireNavigator PUBLIC Luau.Config)
+if(TARGET Luau.RequireNavigator)
+    target_compile_features(Luau.RequireNavigator PUBLIC cxx_std_17)
+    target_include_directories(Luau.RequireNavigator PUBLIC Require/Navigator/include)
+    target_link_libraries(Luau.RequireNavigator PUBLIC Luau.Config)
+endif()
 
-target_include_directories(isocline PUBLIC extern/isocline/include)
+if(TARGET isocline)
+    target_include_directories(isocline PUBLIC extern/isocline/include)
+endif()
 
 target_include_directories(Luau.VM.Internals INTERFACE VM/src)
 
@@ -164,9 +184,13 @@ target_compile_options(Luau.Ast PRIVATE ${LUAU_OPTIONS})
 target_compile_options(Luau.Analysis PRIVATE ${LUAU_OPTIONS})
 target_compile_options(Luau.EqSat PRIVATE ${LUAU_OPTIONS})
 target_compile_options(Luau.CLI.lib PRIVATE ${LUAU_OPTIONS})
-target_compile_options(Luau.CodeGen PRIVATE ${LUAU_OPTIONS})
+if(TARGET Luau.CodeGen)
+    target_compile_options(Luau.CodeGen PRIVATE ${LUAU_OPTIONS})
+endif()
 target_compile_options(Luau.VM PRIVATE ${LUAU_OPTIONS})
-target_compile_options(isocline PRIVATE ${LUAU_OPTIONS} ${ISOCLINE_OPTIONS})
+if(TARGET isocline)
+    target_compile_options(isocline PRIVATE ${LUAU_OPTIONS} ${ISOCLINE_OPTIONS})
+endif()
 
 if(LUAU_EXTERN_C)
     # enable extern "C" for VM (lua.h, lualib.h) and Compiler (luacode.h) to make Luau friendlier to use from non-C++ languages
@@ -190,15 +214,21 @@ endif()
 
 if(MSVC AND LUAU_BUILD_CLI)
     # the default stack size that MSVC linker uses is 1 MB; we need more stack space in Debug because stack frames are larger
-    set_target_properties(Luau.Analyze.CLI PROPERTIES LINK_FLAGS_DEBUG /STACK:2097152)
-    set_target_properties(Luau.Repl.CLI PROPERTIES LINK_FLAGS_DEBUG /STACK:2097152)
+    if(TARGET Luau.Analyze.CLI)
+        set_target_properties(Luau.Analyze.CLI PROPERTIES LINK_FLAGS_DEBUG /STACK:2097152)
+    endif()
+    if(TARGET Luau.Repl.CLI)
+        set_target_properties(Luau.Repl.CLI PROPERTIES LINK_FLAGS_DEBUG /STACK:2097152)
+    endif()
 endif()
 
 # embed .natvis inside the library debug information
 if(MSVC)
     target_link_options(Luau.Ast INTERFACE /NATVIS:${CMAKE_CURRENT_SOURCE_DIR}/tools/natvis/Ast.natvis)
     target_link_options(Luau.Analysis INTERFACE /NATVIS:${CMAKE_CURRENT_SOURCE_DIR}/tools/natvis/Analysis.natvis)
-    target_link_options(Luau.CodeGen INTERFACE /NATVIS:${CMAKE_CURRENT_SOURCE_DIR}/tools/natvis/CodeGen.natvis)
+    if(TARGET Luau.CodeGen)
+        target_link_options(Luau.CodeGen INTERFACE /NATVIS:${CMAKE_CURRENT_SOURCE_DIR}/tools/natvis/CodeGen.natvis)
+    endif()
     target_link_options(Luau.VM INTERFACE /NATVIS:${CMAKE_CURRENT_SOURCE_DIR}/tools/natvis/VM.natvis)
 endif()
 
@@ -206,7 +236,9 @@ endif()
 if(MSVC_IDE)
     target_sources(Luau.Ast PRIVATE tools/natvis/Ast.natvis)
     target_sources(Luau.Analysis PRIVATE tools/natvis/Analysis.natvis)
-    target_sources(Luau.CodeGen PRIVATE tools/natvis/CodeGen.natvis)
+    if(TARGET Luau.CodeGen)
+        target_sources(Luau.CodeGen PRIVATE tools/natvis/CodeGen.natvis)
+    endif()
     target_sources(Luau.VM PRIVATE tools/natvis/VM.natvis)
 endif()
 
@@ -217,31 +249,40 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux|Darwin|iOS")
 endif ()
 
 if(LUAU_BUILD_CLI)
-    target_compile_options(Luau.Repl.CLI PRIVATE ${LUAU_OPTIONS})
-    target_compile_options(Luau.Reduce.CLI PRIVATE ${LUAU_OPTIONS})
-    target_compile_options(Luau.Analyze.CLI PRIVATE ${LUAU_OPTIONS})
-    target_compile_options(Luau.Ast.CLI PRIVATE ${LUAU_OPTIONS})
-    target_compile_options(Luau.Compile.CLI PRIVATE ${LUAU_OPTIONS})
-    target_compile_options(Luau.Bytecode.CLI PRIVATE ${LUAU_OPTIONS})
-
-    target_include_directories(Luau.Repl.CLI PRIVATE extern extern/isocline/include)
-
-    target_link_libraries(Luau.Repl.CLI PRIVATE Luau.Compiler Luau.Config Luau.CodeGen Luau.VM Luau.Require Luau.CLI.lib isocline)
-
-    target_link_libraries(Luau.Repl.CLI PRIVATE osthreads)
-    target_link_libraries(Luau.Analyze.CLI PRIVATE osthreads)
-
-    target_link_libraries(Luau.Analyze.CLI PRIVATE Luau.Analysis Luau.CLI.lib Luau.RequireNavigator)
-
-    target_link_libraries(Luau.Ast.CLI PRIVATE Luau.Ast Luau.Analysis Luau.CLI.lib)
-
-    target_compile_features(Luau.Reduce.CLI PRIVATE cxx_std_17)
-    target_include_directories(Luau.Reduce.CLI PUBLIC Reduce/include)
-    target_link_libraries(Luau.Reduce.CLI PRIVATE Luau.Common Luau.Ast Luau.Analysis Luau.CLI.lib)
-
-    target_link_libraries(Luau.Compile.CLI PRIVATE Luau.Compiler Luau.VM Luau.CodeGen Luau.CLI.lib)
-
-    target_link_libraries(Luau.Bytecode.CLI PRIVATE Luau.Compiler Luau.VM Luau.CodeGen Luau.CLI.lib)
+    if(TARGET Luau.Repl.CLI)
+        target_compile_options(Luau.Repl.CLI PRIVATE ${LUAU_OPTIONS})
+        target_include_directories(Luau.Repl.CLI PRIVATE extern extern/isocline/include)
+        target_link_libraries(Luau.Repl.CLI PRIVATE Luau.Compiler Luau.Config Luau.CodeGen Luau.VM Luau.Require Luau.CLI.lib isocline)
+        target_link_libraries(Luau.Repl.CLI PRIVATE osthreads)
+    endif()
+    if(TARGET Luau.Reduce.CLI)
+        target_compile_options(Luau.Reduce.CLI PRIVATE ${LUAU_OPTIONS})
+        target_compile_features(Luau.Reduce.CLI PRIVATE cxx_std_17)
+        target_include_directories(Luau.Reduce.CLI PUBLIC Reduce/include)
+        target_link_libraries(Luau.Reduce.CLI PRIVATE Luau.Common Luau.Ast Luau.Analysis Luau.CLI.lib)
+    endif()
+    if(TARGET Luau.Analyze.CLI)
+        target_compile_options(Luau.Analyze.CLI PRIVATE ${LUAU_OPTIONS})
+        target_link_libraries(Luau.Analyze.CLI PRIVATE osthreads)
+        target_link_libraries(Luau.Analyze.CLI PRIVATE Luau.Analysis Luau.CLI.lib Luau.RequireNavigator)
+    endif()
+    if(TARGET Luau.Ast.CLI)
+        target_compile_options(Luau.Ast.CLI PRIVATE ${LUAU_OPTIONS})
+        target_link_libraries(Luau.Ast.CLI PRIVATE Luau.Ast Luau.Analysis Luau.CLI.lib)
+    endif()
+    if(TARGET Luau.Compile.CLI)
+        target_compile_options(Luau.Compile.CLI PRIVATE ${LUAU_OPTIONS})
+        target_link_libraries(Luau.Compile.CLI PRIVATE Luau.Compiler Luau.VM Luau.CodeGen Luau.CLI.lib)
+    endif()
+    if(TARGET Luau.Bytecode.CLI)
+        target_compile_options(Luau.Bytecode.CLI PRIVATE ${LUAU_OPTIONS})
+        target_link_libraries(Luau.Bytecode.CLI PRIVATE Luau.Compiler Luau.VM Luau.CodeGen Luau.CLI.lib)
+    endif()
+    if(TARGET Luau.Transpile54.CLI)
+        target_compile_options(Luau.Transpile54.CLI PRIVATE ${LUAU_OPTIONS})
+        target_link_libraries(Luau.Transpile54.CLI PRIVATE Luau.Analysis Luau.CLI.lib)
+        target_sources(Luau.Transpile54.CLI PRIVATE CLI/src/Transpile54.cpp)
+    endif()
 endif()
 
 if(LUAU_BUILD_TESTS)
@@ -282,7 +323,9 @@ if(LUAU_BUILD_WEB)
     target_link_options(Luau.Web PRIVATE -sSINGLE_FILE=1)
 endif()
 
-add_subdirectory(fuzz)
+if(NOT LUAU_TRANSPILE_ONLY)
+    add_subdirectory(fuzz)
+endif()
 
 # validate dependencies for internal libraries
 foreach(LIB Luau.Ast Luau.Compiler Luau.Config Luau.Analysis Luau.EqSat Luau.CodeGen Luau.VM)
@@ -299,3 +342,40 @@ foreach(LIB Luau.Ast Luau.Compiler Luau.Config Luau.Analysis Luau.EqSat Luau.Cod
         endif()
     endif()
 endforeach()
+
+# Optional: build official PUC Lua 5.4 next to Luau (no linkage by default)
+if(BUILD_PUC_LUA54)
+    include(ExternalProject)
+    set(PUC_LUA54_PREFIX ${CMAKE_BINARY_DIR}/puc-lua54)
+    set(PUC_LUA54_INSTALL ${PUC_LUA54_PREFIX}/install)
+
+    # Choose make target based on platform
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(PUC_LUA54_MAKE_TARGET linux)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(PUC_LUA54_MAKE_TARGET macosx)
+    else()
+        set(PUC_LUA54_MAKE_TARGET posix)
+    endif()
+
+    ExternalProject_Add(puc_lua54
+        URL https://www.lua.org/ftp/lua-5.4.7.tar.gz
+        # URL_HASH SHA256=<fill-if-known>
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        PREFIX ${PUC_LUA54_PREFIX}
+        CONFIGURE_COMMAND ""
+        BUILD_IN_SOURCE 1
+        BUILD_COMMAND make ${PUC_LUA54_MAKE_TARGET}
+        INSTALL_COMMAND make INSTALL_TOP=${PUC_LUA54_INSTALL} install
+    )
+
+    # Provide an imported target consumers can link against if needed
+    add_library(PUC::Lua54 UNKNOWN IMPORTED)
+    add_dependencies(PUC::Lua54 puc_lua54)
+    set_target_properties(PUC::Lua54 PROPERTIES
+        IMPORTED_LOCATION ${PUC_LUA54_INSTALL}/lib/liblua.a
+        INTERFACE_INCLUDE_DIRECTORIES ${PUC_LUA54_INSTALL}/include
+    )
+
+    message(STATUS "PUC Lua 5.4 will be built and installed to: ${PUC_LUA54_INSTALL}")
+endif()

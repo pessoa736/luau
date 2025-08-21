@@ -47,6 +47,14 @@ Alternatively, on Linux and macOS, you can also use `make`:
 make config=release luau luau-analyze
 ```
 
+Minimal build (transpile-only):
+
+```sh
+# Builds only the Lua 5.4 transpiler CLI and its minimal dependencies
+cmake -S . -B build-transpile -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUAU_TRANSPILE_ONLY=ON -DLUAU_BUILD_CLI=ON -DLUAU_BUILD_TESTS=OFF -DLUAU_BUILD_WEB=OFF
+cmake --build build-transpile --target Luau.Transpile54.CLI -j 6
+```
+
 To integrate Luau into your CMake application projects as a library, at the minimum, you'll need to depend on `Luau.Compiler` and `Luau.VM` projects. From there you need to create a new Luau state (using Lua 5.x API such as `lua_newstate`), compile source to bytecode and load it into the VM like this:
 
 ```cpp
@@ -75,6 +83,61 @@ Makefile builds combine both into a single target that can be run via `make test
 Luau uses C++ as its implementation language. The runtime requires C++11, while the compiler and analysis components require C++17. It should build without issues using Microsoft Visual Studio 2017 or later, or gcc-7 or clang-7 or later.
 
 Other than the STL/CRT, Luau library components don't have external dependencies. The test suite depends on the [doctest](https://github.com/onqtam/doctest) testing framework, and the REPL command-line depends on [isocline](https://github.com/daanx/isocline).
+
+# CMake options
+
+Common switches you may find useful:
+- `LUAU_BUILD_CLI` (default ON): constrói as ferramentas de linha de comando.
+- `LUAU_BUILD_TESTS` (default ON): constrói os testes internos.
+- `LUAU_BUILD_WEB` (default OFF): constrói o módulo Web opcional.
+- `BUILD_PUC_LUA54` (default OFF): baixa/compila Lua 5.4 oficial lado a lado.
+- `LUAU_TRANSPILE_ONLY` (default OFF): constrói apenas o transpiler Lua 5.4 e dependências mínimas (desabilita REPL, analyzer, outros CLIs, testes, web e fuzz).
+
+# Lua 5.4 support (via transpile)
+
+Luau targets Lua 5.1 at runtime. If you want to run Luau source on an official Lua 5.4 VM, use the transpiler mode to emit Lua 5.4-compatible code instead of replacing the Luau VM.
+
+Important: “Se você realmente quiser substituir o VM do Luau por 5.4 dentro deste projeto, é uma migração pesada: o runtime do Luau foi extensivamente modificado; a integração envolve bytecode, libs e APIs. Recomendo seguir com o transpile.”
+
+Build the transpiler CLI:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build --target Luau.Transpile54.CLI --config RelWithDebInfo
+```
+
+Usage:
+
+```sh
+# Transpile Luau to Lua 5.4 code (reads stdin, writes stdout)
+./build/luau-transpile54 < input.luau > output.lua
+```
+
+Transpile-only build (mais enxuto):
+
+```sh
+cmake -S . -B build-transpile -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLUAU_TRANSPILE_ONLY=ON -DLUAU_BUILD_CLI=ON -DLUAU_BUILD_TESTS=OFF -DLUAU_BUILD_WEB=OFF
+cmake --build build-transpile --target Luau.Transpile54.CLI -j 6
+
+# usar o binário
+./build-transpile/luau-transpile54 < input.luau > output.lua
+```
+
+Optionally, build the official PUC-Rio Lua 5.4 side-by-side to run the result:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_PUC_LUA54=ON
+cmake --build build --target Luau.Transpile54.CLI --config RelWithDebInfo
+
+# Then run transpiled code with the built lua interpreter
+./build/puc-lua54/install/bin/lua output.lua
+```
+
+Scope and limitations:
+- Types, attributes, and Luau-only syntax are removed or rewritten.
+- continue statements are rewritten via goto labels; compound assignments and interpolated strings are expanded.
+- This does not replace the Luau VM; it’s a source-to-source path for Lua 5.4 compatibility.
+ - In `LUAU_TRANSPILE_ONLY=ON`, REPL/analyzer/outros CLIs, testes e fuzz não são construídos.
 
 # License
 

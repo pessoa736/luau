@@ -72,6 +72,7 @@ target_sources(Luau.Config PRIVATE
 )
 
 # Luau.CodeGen Sources
+if(TARGET Luau.CodeGen)
 target_sources(Luau.CodeGen PRIVATE
     CodeGen/include/Luau/AddressA64.h
     CodeGen/include/Luau/AssemblyBuilderA64.h
@@ -165,6 +166,7 @@ target_sources(Luau.CodeGen PRIVATE
     CodeGen/src/IrValueLocationTracking.h
     CodeGen/src/NativeState.h
 )
+endif()
 
 # Luau.Analysis Sources
 target_sources(Luau.Analysis PRIVATE
@@ -396,10 +398,12 @@ target_sources(Luau.VM PRIVATE
     VM/src/lvm.h
 )
 
-target_sources(isocline PRIVATE
-    extern/isocline/include/isocline.h
-    extern/isocline/src/isocline.c
-)
+if(TARGET isocline)
+    target_sources(isocline PRIVATE
+        extern/isocline/include/isocline.h
+        extern/isocline/src/isocline.c
+    )
+endif()
 
 # Common sources shared between all CLI apps
 target_sources(Luau.CLI.lib PRIVATE
