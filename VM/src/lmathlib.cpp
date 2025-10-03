@@ -3,8 +3,10 @@
 #include "lualib.h"
 
 #include "lstate.h"
+#include "lnumutils.h"
 
 #include <math.h>
+#include <limits.h>
 #include <time.h>
 
 #undef PI
@@ -403,6 +405,56 @@ static int math_round(lua_State* L)
     return 1;
 }
 
+static int math_tointeger(lua_State* L)
+{
+    int isnum;
+    double n = lua_tonumberx(L, 1, &isnum);
+    if (!isnum)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    if (!luai_numisnan(n) && n >= double(LUA_MININTEGER) && n <= double(LUA_MAXINTEGER))
+    {
+        double intpart;
+        if (modf(n, &intpart) == 0.0)
+        {
+            lua_pushinteger(L, lua_Integer(intpart));
+            return 1;
+        }
+    }
+
+    lua_pushnil(L);
+    return 1;
+}
+
+static int math_type(lua_State* L)
+{
+    if (!lua_isnumber(L, 1))
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    double n = lua_tonumber(L, 1);
+
+    if (!luai_numisnan(n) && n >= double(LUA_MININTEGER) && n <= double(LUA_MAXINTEGER))
+    {
+        double intpart;
+        double frac = modf(n, &intpart);
+
+        if (frac == 0.0)
+        {
+            lua_pushliteral(L, "integer");
+            return 1;
+        }
+    }
+
+    lua_pushliteral(L, "float");
+    return 1;
+}
+
 static int math_map(lua_State* L)
 {
     double x = luaL_checknumber(L, 1);
@@ -424,6 +476,14 @@ static int math_lerp(lua_State* L)
 
     double r = (t == 1.0) ? b : a + (b - a) * t;
     lua_pushnumber(L, r);
+    return 1;
+}
+
+static int math_ult(lua_State* L)
+{
+    lua_Unsigned a = luaL_checkunsigned(L, 1);
+    lua_Unsigned b = luaL_checkunsigned(L, 2);
+    lua_pushboolean(L, a < b);
     return 1;
 }
 
@@ -451,6 +511,9 @@ static const luaL_Reg mathlib[] = {
     {"rad", math_rad},
     {"random", math_random},
     {"randomseed", math_randomseed},
+    {"tointeger", math_tointeger},
+    {"type", math_type},
+    {"ult", math_ult},
     {"sinh", math_sinh},
     {"sin", math_sin},
     {"sqrt", math_sqrt},
@@ -481,6 +544,10 @@ int luaopen_math(lua_State* L)
     lua_setfield(L, -2, "pi");
     lua_pushnumber(L, HUGE_VAL);
     lua_setfield(L, -2, "huge");
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    lua_setfield(L, -2, "maxinteger");
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_setfield(L, -2, "mininteger");
 
     return 1;
 }

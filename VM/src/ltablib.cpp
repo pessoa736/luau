@@ -202,7 +202,7 @@ static int tmove(lua_State* L)
     int f = luaL_checkinteger(L, 2);
     int e = luaL_checkinteger(L, 3);
     int t = luaL_checkinteger(L, 4);
-    int tt = !lua_isnoneornil(L, 5) ? 5 : 1; // destination table
+    int tt = lua_isnone(L, 5) ? 1 : 5; // destination table
     luaL_checktype(L, tt, LUA_TTABLE);
 
     if (e >= f)
@@ -511,6 +511,8 @@ static int tcreate(lua_State* L)
             TValue* e = &t->array[i];
             setobj2t(L, e, v);
         }
+
+        luaC_barrierfast(L, t);
     }
     else
     {

@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 
 #include "luaconf.h"
 
@@ -102,6 +103,14 @@ typedef int lua_Integer;
 
 // unsigned integer type
 typedef unsigned lua_Unsigned;
+
+#ifndef LUA_MAXINTEGER
+#define LUA_MAXINTEGER INT_MAX
+#endif
+
+#ifndef LUA_MININTEGER
+#define LUA_MININTEGER INT_MIN
+#endif
 
 /*
 ** state manipulation

@@ -19,6 +19,7 @@ declare _VERSION: string
 declare function gcinfo(): number
 
 declare function print<T...>(...: T...)
+declare function warn<T...>(...: T...): ()
 
 declare function type<T>(value: T): string
 declare function typeof<T>(value: T): string
@@ -73,6 +74,7 @@ declare _VERSION: string
 declare function gcinfo(): number
 
 declare function print<T...>(...: T...)
+declare function warn<T...>(...: T...): ()
 
 declare function type<T>(value: T): string
 declare function typeof<T>(value: T): string
@@ -173,9 +175,15 @@ declare math: {
 
     pi: number,
     huge: number,
+    maxinteger: number,
+    mininteger: number,
 
     randomseed: @checked (seed: number) -> (),
     random: @checked (number?, number?) -> number,
+
+    tointeger: @checked (value: any) -> number?,
+    type: @checked (value: any) -> string?,
+    ult: @checked (m: number, n: number) -> boolean,
 
     sign: @checked (n: number) -> number,
     clamp: @checked (n: number, min: number, max: number) -> number,

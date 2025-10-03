@@ -134,6 +134,28 @@ assert(8388609 + -8388609 == 0)
 assert(8388608 + -8388608 == 0)
 assert(8388607 + -8388607 == 0)
 
+do
+  local max = math.maxinteger
+  local min = math.mininteger
+
+  assert(type(max) == "number" and type(min) == "number")
+  assert(max == 2147483647 and min == -2147483648)
+
+  assert(math.tointeger(max) == max)
+  assert(math.tointeger(min) == min)
+  assert(math.tointeger(3.0) == 3)
+  assert(math.tointeger("42") == 42)
+  assert(math.tointeger("42.0") == 42)
+  assert(math.tointeger(3.5) == nil)
+  assert(math.tointeger("1.5") == nil)
+  assert(math.tointeger(math.huge) == nil)
+
+  assert(math.ult(0, -1))
+  assert(not math.ult(-1, 0))
+  assert(math.ult(max, min))
+  assert(not math.ult(min, max))
+end
+
 if rawget(_G, "_soft") then return end
 
 f = "a = {"

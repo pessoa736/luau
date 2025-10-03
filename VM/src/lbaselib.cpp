@@ -20,6 +20,11 @@ static void writestring(const char* s, size_t l)
     fwrite(s, 1, l, stdout);
 }
 
+static void writestringerror(const char* s, size_t l)
+{
+    fwrite(s, 1, l, stderr);
+}
+
 static int luaB_print(lua_State* L)
 {
     int n = lua_gettop(L); // number of arguments
@@ -33,6 +38,28 @@ static int luaB_print(lua_State* L)
         lua_pop(L, 1); // pop result
     }
     writestring("\n", 1);
+    return 0;
+}
+
+static int luaB_warn(lua_State* L)
+{
+    int n = lua_gettop(L);
+    luaL_checkstack(L, n + 1, "too many arguments to warn");
+
+    writestringerror("warning: ", sizeof("warning: ") - 1);
+
+    for (int i = 1; i <= n; i++)
+    {
+        size_t l;
+        const char* s = luaL_tolstring(L, i, &l);
+        if (i > 1)
+            writestringerror("\t", 1);
+        writestringerror(s, l);
+        lua_pop(L, 1);
+    }
+
+    writestringerror("\n", 1);
+
     return 0;
 }
 
@@ -497,6 +524,7 @@ static const luaL_Reg base_funcs[] = {
     {"tostring", luaB_tostring},
     {"type", luaB_type},
     {"typeof", luaB_typeof},
+    {"warn", luaB_warn},
     {NULL, NULL},
 };
 
