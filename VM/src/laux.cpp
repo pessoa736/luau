@@ -2,7 +2,7 @@
 // This code is based on Lua 5.x implementation licensed under MIT License; see lua_LICENSE.txt for details
 #include "lualib.h"
 
-#include "Luau/Compiler.h"
+#include "luacode.h"
 
 #include "lobject.h"
 #include "lstate.h"
@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <string>
 
@@ -421,9 +422,17 @@ int luaL_loadbufferx(lua_State* L, const char* buff, size_t size, const char* na
         return LUA_ERRSYNTAX;
     }
 
-    std::string source(buff, size);
-    std::string bytecode = Luau::compile(source);
-    return luau_load(L, chunkname, bytecode.data(), bytecode.size(), 0);
+    size_t bytecodeSize = 0;
+    char* bytecode = luau_compile(buff, size, nullptr, &bytecodeSize);
+    if (!bytecode)
+    {
+        lua_pushliteral(L, "failed to compile chunk: out of memory");
+        return LUA_ERRMEM;
+    }
+
+    int status = luau_load(L, chunkname, bytecode, bytecodeSize, 0);
+    free(bytecode);
+    return status;
 }
 
 int luaL_loadfilex(lua_State* L, const char* filename, const char* mode)
