@@ -2,6 +2,8 @@
 // This code is based on Lua 5.x implementation licensed under MIT License; see lua_LICENSE.txt for details
 #include "lualib.h"
 
+#include "Luau/Compiler.h"
+
 #include "lobject.h"
 #include "lstate.h"
 #include "lstring.h"
@@ -9,7 +11,11 @@
 #include "lgc.h"
 #include "lnumutils.h"
 
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
+#include <string>
 
 LUAU_FASTFLAG(LuauStacklessPcall)
 
@@ -351,6 +357,136 @@ const char* luaL_typename(lua_State* L, int idx)
 {
     const TValue* obj = luaA_toobject(L, idx);
     return obj ? luaT_objtypename(L, obj) : "no value";
+}
+
+static bool modeAllows(const char* mode, char option)
+{
+    if (!mode)
+        return true;
+
+    for (const char* p = mode; *p; ++p)
+    {
+        unsigned char c = static_cast<unsigned char>(*p);
+        if (tolower(c) == tolower(static_cast<unsigned char>(option)))
+            return true;
+    }
+
+    return false;
+}
+
+static bool shouldRetryAsText(const char* err)
+{
+    if (!err)
+        return false;
+
+    return strstr(err, "bytecode") != NULL || strstr(err, "version") != NULL || strstr(err, "format") != NULL;
+}
+
+int luaL_loadbufferx(lua_State* L, const char* buff, size_t size, const char* name, const char* mode)
+{
+    LUAU_ASSERT(buff);
+
+    const char* chunkname = name ? name : "=(buffer)";
+    const bool allowText = modeAllows(mode, 't');
+    const bool allowBinary = modeAllows(mode, 'b');
+
+    if (!allowText && !allowBinary)
+    {
+        lua_pushfstring(L, "attempt to load chunk (invalid mode '%s')", mode ? mode : "");
+        return LUA_ERRSYNTAX;
+    }
+
+    if (allowBinary)
+    {
+        int status = luau_load(L, chunkname, buff, size, 0);
+        if (status == LUA_OK)
+            return LUA_OK;
+
+        if (!allowText)
+            return status;
+
+        if (!lua_isstring(L, -1))
+            return status;
+
+        const char* err = lua_tostring(L, -1);
+        if (!shouldRetryAsText(err))
+            return status;
+
+        lua_pop(L, 1);
+    }
+
+    if (!allowText)
+    {
+        lua_pushliteral(L, "attempt to load text chunk with binary-only mode");
+        return LUA_ERRSYNTAX;
+    }
+
+    std::string source(buff, size);
+    std::string bytecode = Luau::compile(source);
+    return luau_load(L, chunkname, bytecode.data(), bytecode.size(), 0);
+}
+
+int luaL_loadfilex(lua_State* L, const char* filename, const char* mode)
+{
+    std::string chunkname;
+    FILE* file = NULL;
+
+    if (filename == NULL)
+    {
+        file = stdin;
+        chunkname = "=stdin";
+    }
+    else
+    {
+        file = fopen(filename, "rb");
+        chunkname.reserve(strlen(filename) + 1);
+        chunkname = '@';
+        chunkname += filename;
+    }
+
+    if (!file)
+    {
+        const char* target = filename ? filename : "stdin";
+        lua_pushfstring(L, "cannot open %s: %s", target, strerror(errno));
+        return LUA_ERRFILE;
+    }
+
+    std::string data;
+    char buffer[4096];
+
+    while (true)
+    {
+        size_t n = fread(buffer, 1, sizeof(buffer), file);
+        if (n > 0)
+            data.append(buffer, n);
+        if (n < sizeof(buffer))
+        {
+            if (ferror(file))
+            {
+                const char* target = filename ? filename : "stdin";
+                lua_pushfstring(L, "cannot read %s: %s", target, strerror(errno));
+                if (filename)
+                    fclose(file);
+                else
+                    clearerr(file);
+                return LUA_ERRFILE;
+            }
+            break;
+        }
+    }
+
+    if (filename)
+        fclose(file);
+    else
+        clearerr(file);
+
+    return luaL_loadbufferx(L, data.empty() ? "" : data.c_str(), data.size(), chunkname.c_str(), mode);
+}
+
+int luaL_loadstring(lua_State* L, const char* s)
+{
+    LUAU_ASSERT(s);
+    return luaL_loadbuffer(L, s, strlen(s), s);
 }
 
 int luaL_callyieldable(lua_State* L, int nargs, int nresults)

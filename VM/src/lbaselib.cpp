@@ -240,6 +240,109 @@ static int luaB_typeof(lua_State* L)
     return 1;
 }
 
+static int load_aux(lua_State* L, int status, int envidx, int envarg)
+{
+    if (status == LUA_OK)
+    {
+        if (envidx != 0)
+        {
+            if (envarg != 0)
+                luaL_argexpected(L, lua_type(L, envidx) == LUA_TTABLE || lua_type(L, envidx) == LUA_TNIL, envarg, "table or nil");
+            lua_pushvalue(L, envidx);
+            if (lua_setfenv(L, -2) == 0)
+                lua_pop(L, 1);
+        }
+        return 1;
+    }
+
+    lua_pushnil(L);
+    lua_insert(L, -2);
+    return 2;
+}
+
+static int luaB_load(lua_State* L)
+{
+    size_t len = 0;
+    const char* chunk = lua_tolstring(L, 1, &len);
+    const char* chunkname = luaL_optstring(L, 2, chunk ? chunk : "=(load)");
+    const char* mode = luaL_optstring(L, 3, "bt");
+    int envarg = !lua_isnone(L, 4) ? 4 : 0;
+    int envidx = envarg ? lua_absindex(L, 4) : 0;
+
+    int status = LUA_ERRSYNTAX;
+
+    if (chunk)
+    {
+        status = luaL_loadbufferx(L, chunk, len, chunkname, mode);
+    }
+    else
+    {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+
+        luaL_Buffer b;
+        luaL_buffinit(L, &b);
+
+        while (true)
+        {
+            lua_pushvalue(L, 1);
+            lua_call(L, 0, 1);
+
+            if (lua_isnil(L, -1))
+            {
+                lua_pop(L, 1);
+                break;
+            }
+
+            if (!lua_isstring(L, -1))
+                luaL_error(L, "reader function must return a string");
+
+            luaL_addvalue(&b);
+        }
+
+        luaL_pushresult(&b);
+        const char* source = lua_tolstring(L, -1, &len);
+        status = luaL_loadbufferx(L, source, len, chunkname, mode);
+        lua_remove(L, -2);
+    }
+
+    return load_aux(L, status, envidx, envarg);
+}
+
+static int luaB_loadfile(lua_State* L)
+{
+    const char* filename = luaL_optstring(L, 1, NULL);
+    const char* mode = luaL_optstring(L, 2, NULL);
+    int envarg = !lua_isnone(L, 3) ? 3 : 0;
+    int envidx = envarg ? lua_absindex(L, 3) : 0;
+
+    int status = luaL_loadfilex(L, filename, mode);
+    return load_aux(L, status, envidx, envarg);
+}
+
+static int luaB_loadstring(lua_State* L)
+{
+    size_t len;
+    const char* s = luaL_checklstring(L, 1, &len);
+    const char* chunkname = luaL_optstring(L, 2, s);
+    int status = luaL_loadbuffer(L, s, len, chunkname);
+    return load_aux(L, status, 0, 0);
+}
+
+static int luaB_dofile(lua_State* L)
+{
+    const char* filename = luaL_optstring(L, 1, NULL);
+    int status = luaL_loadfile(L, filename);
+    if (status != LUA_OK)
+    {
+        lua_error(L);
+        return 0;
+    }
+
+    int base = lua_gettop(L) - 1;
+    lua_call(L, 0, LUA_MULTRET);
+    return lua_gettop(L) - base;
+}
+
 int luaB_next(lua_State* L)
 {
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -506,10 +609,14 @@ static int luaB_newproxy(lua_State* L)
 
 static const luaL_Reg base_funcs[] = {
     {"assert", luaB_assert},
+    {"dofile", luaB_dofile},
     {"error", luaB_error},
     {"gcinfo", luaB_gcinfo},
     {"getfenv", luaB_getfenv},
     {"getmetatable", luaB_getmetatable},
+    {"load", luaB_load},
+    {"loadfile", luaB_loadfile},
+    {"loadstring", luaB_loadstring},
     {"next", luaB_next},
     {"newproxy", luaB_newproxy},
     {"print", luaB_print},

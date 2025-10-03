@@ -15,6 +15,8 @@ struct luaL_Reg
 };
 typedef struct luaL_Reg luaL_Reg;
 
+#define LUA_ERRFILE (LUA_ERRERR + 1)
+
 LUALIB_API void luaL_register(lua_State* L, const char* libname, const luaL_Reg* l);
 LUALIB_API int luaL_getmetafield(lua_State* L, int obj, const char* e);
 LUALIB_API int luaL_callmeta(lua_State* L, int obj, const char* e);
@@ -58,6 +60,10 @@ LUALIB_API const char* luaL_findtable(lua_State* L, int idx, const char* fname, 
 
 LUALIB_API const char* luaL_typename(lua_State* L, int idx);
 
+LUALIB_API int luaL_loadbufferx(lua_State* L, const char* buff, size_t size, const char* name, const char* mode);
+LUALIB_API int luaL_loadfilex(lua_State* L, const char* filename, const char* mode);
+LUALIB_API int luaL_loadstring(lua_State* L, const char* s);
+
 // wrapper for making calls from yieldable C functions
 LUALIB_API int luaL_callyieldable(lua_State* L, int nargs, int nresults);
 
@@ -72,6 +78,9 @@ LUALIB_API int luaL_callyieldable(lua_State* L, int nargs, int nresults);
 
 #define luaL_checkstring(L, n) (luaL_checklstring(L, (n), NULL))
 #define luaL_optstring(L, n, d) (luaL_optlstring(L, (n), (d), NULL))
+
+#define luaL_loadbuffer(L, buff, size, name) luaL_loadbufferx(L, buff, size, name, NULL)
+#define luaL_loadfile(L, f) luaL_loadfilex(L, f, NULL)
 
 #define luaL_getmetatable(L, n) (lua_getfield(L, LUA_REGISTRYINDEX, (n)))
 
